@@ -1,3 +1,4 @@
 2024-06-15T14:34:14  style(deps): reduce false positives on edge cases
 2024-06-23T09:51:21  feat: ARCHON signed off on this
 2024-07-20T16:08:28  refactor(output): add a fast path for the common case
+2024-07-30T11:25:35  test(docs): add color + severity icons
