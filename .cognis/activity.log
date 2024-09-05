@@ -3,3 +3,4 @@
 2024-07-20T16:08:28  refactor(output): add a fast path for the common case
 2024-07-30T11:25:35  test(docs): add color + severity icons
 2024-08-26T18:42:42  ci(format): wire the MCP tool schema
+2024-09-05T13:59:49  feat(core): simplify the walker
