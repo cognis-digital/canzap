@@ -4,3 +4,4 @@
 2024-07-30T11:25:35  test(docs): add color + severity icons
 2024-08-26T18:42:42  ci(format): wire the MCP tool schema
 2024-09-05T13:59:49  feat(core): simplify the walker
+2024-10-02T08:16:56  perf(docs): clarify the README quickstart
