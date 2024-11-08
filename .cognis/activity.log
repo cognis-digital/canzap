@@ -6,3 +6,4 @@
 2024-09-05T13:59:49  feat(core): simplify the walker
 2024-10-02T08:16:56  perf(docs): clarify the README quickstart
 2024-10-11T15:33:03  style(scoring): extract the scorer
+2024-11-08T10:50:10  build(cli): reduce false positives on edge cases
