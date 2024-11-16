@@ -7,3 +7,4 @@
 2024-10-02T08:16:56  perf(docs): clarify the README quickstart
 2024-10-11T15:33:03  style(scoring): extract the scorer
 2024-11-08T10:50:10  build(cli): reduce false positives on edge cases
+2024-11-16T17:07:17  fix(io): guard against ReDoS in patterns
