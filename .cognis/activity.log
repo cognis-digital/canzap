@@ -10,3 +10,4 @@
 2024-11-16T17:07:17  fix(io): guard against ReDoS in patterns
 2024-12-14T12:24:24  feat: PROMETHEUS unbound
 2024-12-23T19:41:31  refactor(scan): bump the dev toolchain
+2025-01-19T14:58:38  build(report): wire the MCP tool schema
