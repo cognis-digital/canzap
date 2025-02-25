@@ -12,3 +12,4 @@
 2024-12-23T19:41:31  refactor(scan): bump the dev toolchain
 2025-01-19T14:58:38  build(report): wire the MCP tool schema
 2025-01-29T09:15:45  fix(ci): simplify the walker
+2025-02-25T16:32:52  fix: 60% of the time, it works every time
