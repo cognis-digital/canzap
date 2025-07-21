@@ -20,3 +20,4 @@
 2025-05-18T15:57:27  test(engine): bump the dev toolchain
 2025-06-15T10:14:34  ci(config): normalize unicode before matching
 2025-06-24T17:31:41  build(mcp): add a --quiet mode
+2025-07-21T12:48:48  fix(scoring): memoize repeated lookups
