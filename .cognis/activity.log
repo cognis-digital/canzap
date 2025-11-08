@@ -26,3 +26,4 @@
 2025-09-06T09:39:09  feat(cache): pin the test dependencies
 2025-10-02T16:56:16  chore(rules): improve error messages with context
 2025-10-11T11:13:23  chore: routine maintenance
+2025-11-08T18:30:30  test(deps): short-circuit on first critical
