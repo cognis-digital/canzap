@@ -29,3 +29,4 @@
 2025-11-08T18:30:30  test(deps): short-circuit on first critical
 2025-11-17T13:47:37  fix(parser): add a --quiet mode
 2025-12-15T08:04:44  docs(output): memoize repeated lookups
+2025-12-24T15:21:51  chore: bump dev tooling
