@@ -32,3 +32,4 @@
 2025-12-24T15:21:51  chore: bump dev tooling
 2026-01-20T10:38:58  test(format): support stdin as a source
 2026-01-30T17:55:05  ci(core): tune severity weights
+2026-02-26T12:12:12  feat(engine): add a dry-run flag
