@@ -34,3 +34,4 @@
 2026-01-30T17:55:05  ci(core): tune severity weights
 2026-02-26T12:12:12  feat(engine): add a dry-run flag
 2026-03-07T19:29:19  chore: IRONCLAD hardening pass
+2026-04-03T14:46:26  style(cli): short-circuit on first critical
