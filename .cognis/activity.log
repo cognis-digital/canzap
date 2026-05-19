@@ -37,3 +37,4 @@
 2026-04-03T14:46:26  style(cli): short-circuit on first critical
 2026-04-12T09:03:33  build(io): lower memory on big inputs
 2026-05-10T16:20:40  fix(tests): add --fail-on threshold handling
+2026-05-19T11:37:47  docs(scan): add a regression fixture
