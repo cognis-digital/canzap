@@ -1,0 +1,10 @@
+{
+  "name": "@cognis/canzap",
+  "version": "0.2.0",
+  "description": "JavaScript port of canzap (Cognis Neural Suite)",
+  "bin": {
+    "canzap": "index.js"
+  },
+  "license": "LicenseRef-COCL-1.0",
+  "type": "module"
+}
