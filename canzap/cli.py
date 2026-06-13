@@ -105,6 +105,13 @@ def build_parser() -> argparse.ArgumentParser:
     pd.add_argument("--log", required=True, help="candump log file ('-' for stdin)")
     pd.set_defaults(func=_cmd_dump)
 
+    # accept --format after the subcommand too (SUPPRESS so the subparser
+    # doesn't overwrite a value already parsed at the top level)
+    for spx in (pc, pd):
+        spx.add_argument("--format", choices=["table", "json"],
+                         default=argparse.SUPPRESS,
+                         help="output format (default: table)")
+
     return p
 
 
