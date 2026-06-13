@@ -20,6 +20,31 @@ pip install cognis-canzap
 canzap scan .            # → prioritized findings in seconds
 ```
 
+## Usage — step by step
+
+1. **Install** the CLI (console script `canzap`):
+   ```bash
+   pip install cognis-canzap
+   ```
+2. **Replay a candump log into frames** to confirm parsing first:
+   ```bash
+   canzap dump --log capture.log
+   ```
+3. **Assert the log against a scenario** (`.canzap` file) — `check` exits non-zero on any failed assertion:
+   ```bash
+   canzap check --log capture.log --scenario startup.canzap
+   ```
+4. **Read the result** as JSON for pipelines (`--format` is a global flag; `-` reads stdin):
+   ```bash
+   canzap dump --log capture.log --format json
+   cat capture.log | canzap check --log - --scenario startup.canzap --format json
+   ```
+5. **Automate in CI** — gate a build on bus assertions (non-zero exit fails the job):
+   ```yaml
+   - run: pip install cognis-canzap
+   - run: canzap check --log capture.log --scenario startup.canzap --format json
+   ```
+
 ## Contents
 
 - [Why canzap?](#why) · [Features](#features) · [Quick start](#quick-start) · [Example](#example) · [Architecture](#architecture) · [AI stack](#ai-stack) · [How it compares](#how-it-compares) · [Integrations](#integrations) · [Install anywhere](#install-anywhere) · [Related](#related) · [Contributing](#contributing)
