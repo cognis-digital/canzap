@@ -209,11 +209,22 @@ def parse_candump_text(text: str) -> List[CanFrame]:
 # --------------------------------------------------------------------------
 
 
-def _coerce_int(value: str) -> int:
+def _coerce_int(value: str, field: str = "") -> int:
+    """Convert a decimal or 0x-prefixed hex string to int.
+
+    Raises ValueError with the field name on invalid input.
+    """
     value = value.strip()
-    if value.lower().startswith("0x"):
-        return int(value, 16)
-    return int(value, 10)
+    if not value:
+        label = f"field '{field}'" if field else "integer field"
+        raise ValueError(f"{label} must not be empty")
+    try:
+        if value.lower().startswith("0x"):
+            return int(value, 16)
+        return int(value, 10)
+    except ValueError:
+        label = f"field '{field}'" if field else "integer field"
+        raise ValueError(f"invalid integer for {label}: {value!r}") from None
 
 
 def _coerce_bool(value: str) -> bool:
@@ -273,29 +284,67 @@ def load_scenario_text(text: str) -> Scenario:
 def _build_assertion(d: Dict[str, str], lineno: int) -> Assertion:
     if "id" not in d:
         raise ValueError(f"assertion near line {lineno} missing required 'id'")
-    a = Assertion(name=d.get("name", d["id"]), can_id=_coerce_int(d["id"]))
+    loc = f"(near line {lineno})" if lineno >= 0 else "(last assertion)"
+    can_id = _coerce_int(d["id"], field=f"id {loc}")
+    a = Assertion(name=d.get("name", d["id"]), can_id=can_id)
     if "present" in d:
         a.present = _coerce_bool(d["present"])
     if "byte" in d:
-        a.byte = _coerce_int(d["byte"])
+        a.byte = _coerce_int(d["byte"], field=f"byte {loc}")
     if "equals" in d:
-        a.equals = _coerce_int(d["equals"])
+        a.equals = _coerce_int(d["equals"], field=f"equals {loc}")
     if "data_equals" in d:
-        a.data_equals = bytes.fromhex(d["data_equals"].replace(" ", ""))
+        raw_hex = d["data_equals"].replace(" ", "")
+        try:
+            a.data_equals = bytes.fromhex(raw_hex)
+        except ValueError:
+            raise ValueError(
+                f"data_equals {loc} is not valid hex: {raw_hex!r}"
+            ) from None
     if "min_count" in d:
-        a.min_count = _coerce_int(d["min_count"])
+        val = _coerce_int(d["min_count"], field=f"min_count {loc}")
+        if val < 0:
+            raise ValueError(f"min_count {loc} must be >= 0, got {val}")
+        a.min_count = val
     if "max_count" in d:
-        a.max_count = _coerce_int(d["max_count"])
+        val = _coerce_int(d["max_count"], field=f"max_count {loc}")
+        if val < 0:
+            raise ValueError(f"max_count {loc} must be >= 0, got {val}")
+        a.max_count = val
     if "max_period_ms" in d:
-        a.max_period_ms = float(d["max_period_ms"])
+        try:
+            val_f = float(d["max_period_ms"])
+        except ValueError:
+            raise ValueError(
+                f"max_period_ms {loc} must be a number, got {d['max_period_ms']!r}"
+            ) from None
+        if val_f <= 0:
+            raise ValueError(f"max_period_ms {loc} must be positive, got {val_f}")
+        a.max_period_ms = val_f
     if "interface" in d:
         a.interface = d["interface"]
     return a
 
 
 def load_scenario(path: str) -> Scenario:
-    with open(path, "r", encoding="utf-8") as fh:
-        return load_scenario_text(fh.read())
+    """Load and parse a .canzap scenario file.
+
+    Raises FileNotFoundError if the file does not exist,
+    ValueError if the file cannot be parsed,
+    PermissionError/OSError if the file cannot be read.
+    """
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            text = fh.read()
+    except FileNotFoundError:
+        raise
+    except PermissionError as exc:
+        raise PermissionError(f"cannot read scenario file {path!r}: {exc}") from exc
+    except OSError as exc:
+        raise OSError(f"cannot read scenario file {path!r}: {exc}") from exc
+    except UnicodeDecodeError as exc:
+        raise ValueError(f"scenario file {path!r} is not valid UTF-8: {exc}") from exc
+    return load_scenario_text(text)
 
 
 # --------------------------------------------------------------------------

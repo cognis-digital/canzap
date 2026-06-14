@@ -123,7 +123,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         return 2
     try:
         return args.func(args)
-    except (FileNotFoundError, ValueError) as exc:
+    except (FileNotFoundError, ValueError, OSError, UnicodeDecodeError) as exc:
         print(f"{TOOL_NAME}: error: {exc}", file=sys.stderr)
         return 2
 
