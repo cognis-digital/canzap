@@ -96,13 +96,18 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub = p.add_subparsers(dest="command")
 
+    fmt = dict(choices=("table", "json"), default=argparse.SUPPRESS,
+               help="output format (default: table); also accepted after the subcommand")
+
     pc = sub.add_parser("check", help="assert a candump log against a scenario")
     pc.add_argument("--log", required=True, help="candump log file ('-' for stdin)")
     pc.add_argument("--scenario", required=True, help="CANZAP scenario (.canzap) file")
+    pc.add_argument("--format", **fmt)
     pc.set_defaults(func=_cmd_check)
 
     pd = sub.add_parser("dump", help="parse/replay a candump log into frames")
     pd.add_argument("--log", required=True, help="candump log file ('-' for stdin)")
+    pd.add_argument("--format", **fmt)
     pd.set_defaults(func=_cmd_dump)
 
     return p
