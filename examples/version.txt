@@ -1,0 +1,3 @@
+$ canzap-emit --version
+
+canzap 0.1.0

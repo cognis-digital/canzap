@@ -20,6 +20,44 @@ pip install cognis-canzap
 canzap scan .            # → prioritized findings in seconds
 ```
 
+
+<!-- cognis:example:start -->
+## 🔎 Example output
+
+Real, reproducible output from the tool — runs offline:
+
+```console
+$ canzap-emit --version
+canzap 0.1.0
+```
+
+```console
+$ canzap-emit --help
+usage: canzap [-h] [--version] [--format {table,json}] {check,dump} ...
+
+Replay and assert on CAN bus traffic from a candump log.
+
+positional arguments:
+  {check,dump}
+    check               assert a candump log against a scenario
+    dump                parse/replay a candump log into frames
+
+options:
+  -h, --help            show this help message and exit
+  --version             show program's version number and exit
+  --format {table,json}
+                        output format (default: table)
+
+examples:
+  canzap check --log capture.log --scenario startup.canzap
+  canzap check --log capture.log --scenario s.canzap --format json
+  canzap dump --log capture.log --format json
+```
+
+> Blocks above are real `canzap` output — reproduce them from a clone.
+
+<!-- cognis:example:end -->
+
 ## Usage — step by step
 
 1. **Install** the CLI (console script `canzap`):
