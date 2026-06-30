@@ -85,7 +85,7 @@ examples:
 
 ## Contents
 
-- [Why canzap?](#why) · [Features](#features) · [Quick start](#quick-start) · [Example](#example) · [Architecture](#architecture) · [AI stack](#ai-stack) · [How it compares](#how-it-compares) · [Integrations](#integrations) · [Install anywhere](#install-anywhere) · [Related](#related) · [Contributing](#contributing)
+- [Why canzap?](#why) · [Features](#features) · [Quick start](#quick-start) · [Example](#example) · [Architecture](#architecture) · [Demos](#demos) · [AI stack](#ai-stack) · [How it compares](#how-it-compares) · [Integrations](#integrations) · [Install anywhere](#install-anywhere) · [Related](#related) · [Contributing](#contributing)
 
 <a name="why"></a>
 ## Why canzap?
@@ -141,9 +141,41 @@ $ canzap scan .
 
 ```mermaid
 flowchart LR
-  IN[capture / scan] --> P[canzap<br/>parse + map]
-  P --> OUT[report]
+  log[candump log] --> parse[parse frames]
+  scn[scenario .canzap] --> load[load assertions]
+  parse --> run[run_scenario]
+  load --> run
+  run --> res[pass / fail<br/>per assertion]
+  res --> out[table · JSON]
+  res --> code[exit 0 / 1<br/>CI gate]
 ```
+
+See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the full pipeline.
+
+<div align="right"><a href="#top">↑ back to top</a></div>
+
+<a name="demos"></a>
+## Demos
+
+Five runnable scenarios in [`demos/`](demos/), each for a different audience.
+Every scenario replays a bundled candump capture fixture through the real
+`canzap.core` API — fully offline, no CAN hardware — prints narrated output, and
+exits 0, so they double as smoke tests.
+
+```bash
+PYTHONUTF8=1 python demos/run_all.py        # all five, end to end
+PYTHONUTF8=1 python demos/03_red_team.py     # or just one
+```
+
+| # | Scenario | Audience | What it shows |
+|---|----------|----------|---------------|
+| 01 | `01_security_researcher.py` | Automotive security researchers | Enumerate the bus on a drive cycle, then lock in its invariants as a replayable baseline. |
+| 02 | `02_ecu_engineer.py` | Embedded / ECU engineers | A periodic-frame timing contract (`max_period_ms`): PASS healthy, FAIL when a heartbeat is dropped. |
+| 03 | `03_red_team.py` | Red teams | Prove a replay/fuzz landed (flood + injected UDS), then invert the rules into the blue team's gate. |
+| 04 | `04_ir_forensics.py` | IR / forensics | Reconstruct an incident — replayed door-unlock burst + spoofed frame — and emit the verdict as JSON. |
+| 05 | `05_bus_report.py` | Architects & reviewers | A one-screen bus map across all captures plus a green/red scenario roll-up. |
+
+Full write-up and capture details in [`docs/DEMOS.md`](docs/DEMOS.md).
 
 <div align="right"><a href="#top">↑ back to top</a></div>
 
