@@ -22,6 +22,15 @@ canzap scan .            # → prioritized findings in seconds
 
 
 <!-- cognis:example:start -->
+
+## Watch the walkthrough
+
+A full narrated tour — setup, the tool in action, and every demo scenario:
+
+[![Watch the canzap walkthrough](media/walkthrough-thumb.png)](https://github.com/cognis-digital/canzap/releases/download/walkthrough-v1/walkthrough.mp4)
+
+▶ **[Watch the walkthrough (MP4)](https://github.com/cognis-digital/canzap/releases/download/walkthrough-v1/walkthrough.mp4)**
+
 ## 🔎 Example output
 
 Real, reproducible output from the tool — runs offline:
