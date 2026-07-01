@@ -21,7 +21,10 @@ The scenario DSL is intentionally a tiny YAML subset so we never need PyYAML:
       - name: heartbeat cadence
         id: 0x700
         min_count: 5
-        max_period_ms: 120
+        max_period_ms: 120     # deadline: a frame at least this often
+      - name: not flooded
+        id: 0x333
+        min_period_ms: 5       # floor: frames closer than this == a flood
       - name: no fault code
         id: 0x500
         present: false
@@ -48,6 +51,7 @@ class CanFrame:
     can_id: int
     data: bytes
     extended: bool = False
+    rtr: bool = False  # remote-transmission-request frame (no data payload)
 
     @property
     def dlc(self) -> int:
@@ -62,6 +66,7 @@ class CanFrame:
             "dlc": self.dlc,
             "data": self.data.hex().upper(),
             "extended": self.extended,
+            "rtr": self.rtr,
         }
 
 
@@ -78,6 +83,7 @@ class Assertion:
     min_count: Optional[int] = None
     max_count: Optional[int] = None
     max_period_ms: Optional[float] = None
+    min_period_ms: Optional[float] = None
     interface: Optional[str] = None
 
 
@@ -133,35 +139,31 @@ class ScenarioResult:
 # candump parsing
 # --------------------------------------------------------------------------
 
-# (1623241200.123456) can0 1A0#00FF1234
-_LOG_RE = re.compile(
+# (1623241200.123456) can0 1A0#00FF1234    — id and data share the single '#'
+# (1623241200.123456) can0 123#R            — remote-transmission-request frame
+_LINE_RE = re.compile(
     r"^\s*(?:\((?P<ts>[0-9]+(?:\.[0-9]+)?)\)\s+)?"
     r"(?P<iface>[A-Za-z0-9_-]+)\s+"
-    r"(?P<id>[0-9A-Fa-f]+)"
-    r"(?P<rtr>#R)?"
-    r"#?"
-    r"(?P<data>[0-9A-Fa-f]*)\s*$"
+    r"(?P<id>[0-9A-Fa-f]+)#(?P<rtr>R)?(?P<data>[0-9A-Fa-f]*)\s*$"
 )
+
+# An 11-bit standard ID fits in <=3 hex digits; an ID written with more hex
+# digits (e.g. 29-bit extended) or a value above the 11-bit range is extended.
+_STD_ID_MAX = 0x7FF
 
 
 def parse_candump(line: str) -> Optional[CanFrame]:
     """Parse a single candump line. Returns None for blank/comment lines.
 
     Accepts both the timestamped log format and the plain `candump` console
-    format. Raises ValueError on a line that looks like a frame but is malformed.
+    format, including remote-transmission-request (RTR) frames (``123#R``).
+    Raises ValueError on a line that looks like a frame but is malformed.
     """
     raw = line.strip()
     if not raw or raw.startswith("#"):
         return None
 
-    # Normalise the canonical `IFACE  ID#DATA` form where id and data share a '#'.
-    # The regex above is permissive; handle the common `1A0#00FF` shape directly.
-    m = re.match(
-        r"^\s*(?:\((?P<ts>[0-9]+(?:\.[0-9]+)?)\)\s+)?"
-        r"(?P<iface>[A-Za-z0-9_-]+)\s+"
-        r"(?P<id>[0-9A-Fa-f]+)#(?P<rtr>R)?(?P<data>[0-9A-Fa-f]*)\s*$",
-        raw,
-    )
+    m = _LINE_RE.match(raw)
     if not m:
         raise ValueError(f"unparseable candump line: {line.rstrip()!r}")
 
@@ -169,14 +171,28 @@ def parse_candump(line: str) -> Optional[CanFrame]:
     iface = m.group("iface")
     id_str = m.group("id")
     can_id = int(id_str, 16)
-    extended = len(id_str) > 3 or can_id > 0x7FF
+    if can_id > 0x1FFFFFFF:
+        raise ValueError(
+            f"CAN ID 0x{can_id:X} exceeds the 29-bit maximum in line: {line.rstrip()!r}"
+        )
+    # A value above the 11-bit range is always extended. Zero-padding an ID to
+    # 4+ hex digits (e.g. "0700") must NOT flip a standard ID to extended, so we
+    # classify on the numeric value, not the written width.
+    extended = can_id > _STD_ID_MAX
 
+    rtr = m.group("rtr") is not None
     data_hex = m.group("data") or ""
+    if rtr and data_hex:
+        raise ValueError(
+            f"RTR frame must not carry data in line: {line.rstrip()!r}"
+        )
     if len(data_hex) % 2 != 0:
         raise ValueError(f"odd-length data field in line: {line.rstrip()!r}")
+    # The regex constrains the data field to hex, and the length is now even, so
+    # fromhex cannot fail here; the guard stays defensive for future changes.
     try:
         data = bytes.fromhex(data_hex)
-    except ValueError as exc:
+    except ValueError as exc:  # pragma: no cover - unreachable via the grammar
         raise ValueError(f"bad hex data in line {line.rstrip()!r}: {exc}")
 
     if len(data) > 64:
@@ -188,6 +204,7 @@ def parse_candump(line: str) -> Optional[CanFrame]:
         can_id=can_id,
         data=data,
         extended=extended,
+        rtr=rtr,
     )
 
 
@@ -209,15 +226,34 @@ def parse_candump_text(text: str) -> List[CanFrame]:
 # --------------------------------------------------------------------------
 
 
-def _coerce_int(value: str) -> int:
-    value = value.strip()
-    if value.lower().startswith("0x"):
-        return int(value, 16)
-    return int(value, 10)
+def _coerce_int(value: str, *, key: str = "value", lineno: int = -1) -> int:
+    raw = value.strip()
+    try:
+        if raw.lower().startswith("0x"):
+            return int(raw, 16)
+        if raw.lower().startswith("0b"):
+            return int(raw, 2)
+        return int(raw, 10)
+    except ValueError:
+        where = f" (line {lineno})" if lineno >= 0 else ""
+        raise ValueError(f"{key!r}{where}: expected an integer, got {value.strip()!r}")
 
 
-def _coerce_bool(value: str) -> bool:
-    return value.strip().lower() in ("true", "yes", "on", "1")
+_BOOL_TRUE = ("true", "yes", "on", "1")
+_BOOL_FALSE = ("false", "no", "off", "0")
+
+
+def _coerce_bool(value: str, *, key: str = "value", lineno: int = -1) -> bool:
+    v = value.strip().lower()
+    if v in _BOOL_TRUE:
+        return True
+    if v in _BOOL_FALSE:
+        return False
+    where = f" (line {lineno})" if lineno >= 0 else ""
+    raise ValueError(
+        f"{key!r}{where}: expected a boolean (one of "
+        f"{', '.join(_BOOL_TRUE + _BOOL_FALSE)}), got {value.strip()!r}"
+    )
 
 
 def load_scenario_text(text: str) -> Scenario:
@@ -229,7 +265,9 @@ def load_scenario_text(text: str) -> Scenario:
     name = "scenario"
     assertions: List[Assertion] = []
     current: Optional[Dict[str, str]] = None
+    current_line = -1  # line where the current assertion block started
     in_assertions = False
+    saw_assertions_key = False
 
     for lineno, raw in enumerate(text.splitlines(), 1):
         line = raw.split("#", 1)[0].rstrip()
@@ -244,16 +282,22 @@ def load_scenario_text(text: str) -> Scenario:
             continue
         if indent == 0 and stripped.rstrip(":") == "assertions":
             in_assertions = True
+            saw_assertions_key = True
             continue
         if not in_assertions:
-            # Unknown top-level key; ignore gracefully.
-            continue
+            # A non-blank, non-name top-level line before `assertions:` is a
+            # structural error, not something to silently swallow.
+            raise ValueError(
+                f"line {lineno}: unexpected top-level line before 'assertions:': "
+                f"{stripped!r}"
+            )
 
         if stripped.startswith("- "):
             # New assertion block; flush previous.
             if current is not None:
-                assertions.append(_build_assertion(current, lineno))
+                assertions.append(_build_assertion(current, current_line))
             current = {}
+            current_line = lineno
             stripped = stripped[2:].strip()
             if not stripped:
                 continue
@@ -265,31 +309,87 @@ def load_scenario_text(text: str) -> Scenario:
         current[key.strip()] = val.strip().strip('"\'')
 
     if current is not None:
-        assertions.append(_build_assertion(current, lineno=-1))
+        assertions.append(_build_assertion(current, lineno=current_line))
+
+    if not saw_assertions_key:
+        raise ValueError("scenario has no 'assertions:' block")
 
     return Scenario(name=name, assertions=assertions)
 
 
+# Recognised assertion keys — anything else is a typo we should surface loudly.
+_ASSERTION_KEYS = frozenset({
+    "name", "id", "present", "byte", "equals", "data_equals",
+    "min_count", "max_count", "max_period_ms", "min_period_ms", "interface",
+})
+
+
 def _build_assertion(d: Dict[str, str], lineno: int) -> Assertion:
+    unknown = set(d) - _ASSERTION_KEYS
+    if unknown:
+        raise ValueError(
+            f"assertion near line {lineno}: unknown key(s) "
+            f"{', '.join(sorted(unknown))}; valid keys are "
+            f"{', '.join(sorted(_ASSERTION_KEYS))}"
+        )
     if "id" not in d:
         raise ValueError(f"assertion near line {lineno} missing required 'id'")
-    a = Assertion(name=d.get("name", d["id"]), can_id=_coerce_int(d["id"]))
+    a = Assertion(name=d.get("name", d["id"]), can_id=_coerce_int(d["id"], key="id", lineno=lineno))
     if "present" in d:
-        a.present = _coerce_bool(d["present"])
+        a.present = _coerce_bool(d["present"], key="present", lineno=lineno)
     if "byte" in d:
-        a.byte = _coerce_int(d["byte"])
+        a.byte = _coerce_int(d["byte"], key="byte", lineno=lineno)
+        if a.byte < 0:
+            raise ValueError(f"assertion near line {lineno}: 'byte' index must be >= 0")
     if "equals" in d:
-        a.equals = _coerce_int(d["equals"])
+        a.equals = _coerce_int(d["equals"], key="equals", lineno=lineno)
+        if not 0 <= a.equals <= 0xFF:
+            raise ValueError(
+                f"assertion near line {lineno}: 'equals' must be a byte value 0-255"
+            )
     if "data_equals" in d:
-        a.data_equals = bytes.fromhex(d["data_equals"].replace(" ", ""))
+        hexstr = d["data_equals"].replace(" ", "")
+        try:
+            a.data_equals = bytes.fromhex(hexstr)
+        except ValueError:
+            raise ValueError(
+                f"assertion near line {lineno}: 'data_equals' is not valid hex: "
+                f"{d['data_equals']!r}"
+            )
     if "min_count" in d:
-        a.min_count = _coerce_int(d["min_count"])
+        a.min_count = _coerce_int(d["min_count"], key="min_count", lineno=lineno)
     if "max_count" in d:
-        a.max_count = _coerce_int(d["max_count"])
+        a.max_count = _coerce_int(d["max_count"], key="max_count", lineno=lineno)
     if "max_period_ms" in d:
-        a.max_period_ms = float(d["max_period_ms"])
+        try:
+            a.max_period_ms = float(d["max_period_ms"])
+        except ValueError:
+            raise ValueError(
+                f"assertion near line {lineno}: 'max_period_ms' must be a number, "
+                f"got {d['max_period_ms']!r}"
+            )
+    if "min_period_ms" in d:
+        try:
+            a.min_period_ms = float(d["min_period_ms"])
+        except ValueError:
+            raise ValueError(
+                f"assertion near line {lineno}: 'min_period_ms' must be a number, "
+                f"got {d['min_period_ms']!r}"
+            )
     if "interface" in d:
         a.interface = d["interface"]
+
+    # Cross-field validation: `byte` and `equals` are only meaningful together.
+    if (a.byte is not None) ^ (a.equals is not None):
+        raise ValueError(
+            f"assertion near line {lineno}: 'byte' and 'equals' must be used "
+            "together (byte selects the index, equals is the expected value)"
+        )
+    if a.min_count is not None and a.max_count is not None and a.min_count > a.max_count:
+        raise ValueError(
+            f"assertion near line {lineno}: min_count {a.min_count} > "
+            f"max_count {a.max_count}"
+        )
     return a
 
 
@@ -329,7 +429,8 @@ def _eval_assertion(frames: List[CanFrame], a: Assertion) -> AssertResult:
 
     # Everything below needs at least one frame.
     if not matches and (a.byte is not None or a.equals is not None or a.data_equals is not None
-                        or a.min_count is not None or a.max_period_ms is not None):
+                        or a.min_count is not None or a.max_period_ms is not None
+                        or a.min_period_ms is not None):
         return AssertResult(a, False, "no frames for this ID to evaluate", observed)
 
     # count constraints
@@ -359,8 +460,10 @@ def _eval_assertion(frames: List[CanFrame], a: Assertion) -> AssertResult:
                 observed,
             )
 
-    # cadence: max period between consecutive frames
-    if a.max_period_ms is not None:
+    # cadence: bound the gap between consecutive frames. `max_period_ms` is a
+    # deadline (a frame must arrive at least this often); `min_period_ms` is a
+    # floor (frames closer than this indicate a flood / replay). They compose.
+    if a.max_period_ms is not None or a.min_period_ms is not None:
         if len(matches) < 2:
             return AssertResult(a, False, "need >=2 frames to measure period", observed)
         periods_ms = [
@@ -368,9 +471,18 @@ def _eval_assertion(frames: List[CanFrame], a: Assertion) -> AssertResult:
             for i in range(1, len(matches))
         ]
         worst = max(periods_ms)
+        tightest = min(periods_ms)
         observed["max_period_ms"] = round(worst, 3)
-        if worst > a.max_period_ms:
+        observed["min_period_ms"] = round(tightest, 3)
+        if a.max_period_ms is not None and worst > a.max_period_ms:
             return AssertResult(a, False, f"max gap {worst:.1f}ms > allowed {a.max_period_ms}ms", observed)
+        if a.min_period_ms is not None and tightest < a.min_period_ms:
+            return AssertResult(
+                a, False,
+                f"min gap {tightest:.1f}ms < required {a.min_period_ms}ms "
+                "(frames arriving too fast)",
+                observed,
+            )
 
     return AssertResult(a, True, "ok", observed)
 
