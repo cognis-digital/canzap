@@ -18,6 +18,21 @@ SCENARIOS = [
     "03_red_team",
     "04_ir_forensics",
     "05_bus_report",
+    "06_flood_detection",
+    "07_j1939_extended",
+    "08_multi_interface",
+    "09_rtr_frames",
+    "10_malformed_recovery",
+    "11_dsl_validation",
+    "12_regression_diff",
+    "13_payload_decode",
+    "14_cli_pipeline",
+    "15_fuzz_campaign",
+    "16_data_equals_match",
+    "17_uds_session",
+    "18_dbc_style_watchlist",
+    "19_timing_jitter",
+    "20_ci_gate_matrix",
 ]
 
 
