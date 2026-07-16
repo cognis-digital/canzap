@@ -61,15 +61,39 @@ with `passed`, a human-readable `detail`, and an `observed` dict (count, byte
 value, worst period…). `ScenarioResult` aggregates them: `.passed` is true only
 when every assertion passes, and `.failures` lists the rest.
 
+### Heuristic scan (`canzap.detect`)
+A second, complementary engine to the assertion DSL: instead of checking a
+capture against a *known-good* contract, it surfaces *suspicious* patterns
+automatically. Each detector is a pure function of the grouped frames —
+`detect_diagnostics`, `detect_extended_ids`, `detect_rtr`, `detect_flood`,
+`detect_jitter`, `detect_singletons`, `detect_dlc_variance` — and returns
+JSON-friendly finding dicts carrying a rule id, severity, arbitration ID, and
+the concrete evidence that fired it. `scan_frames` runs the pipeline and sorts
+findings most-severe first; `scan_report` wraps them with a summary (frame
+count, risk score, max severity); `findings_to_sarif` renders SARIF 2.1.0.
+`canzap.core.scan(target)` resolves a file / directory / raw text to frames and
+calls into this module — it is also the function exposed over MCP.
+
+### Bus analytics (`bus_stats`, `diff_captures`)
+`bus_stats` summarizes a capture into per-ID counts, DLCs, and inter-frame
+timing (min/avg/max period). `diff_captures` compares two captures by
+arbitration ID into `added` / `removed` / `changed` sets — the machinery behind
+the "record a clean drive cycle, gate later captures against it" workflow. Both
+return plain dicts and drive the `stats` and `diff` subcommands.
+
 ### CLI (`canzap.cli`)
-Two subcommands over the same engine: `dump` replays a log into frames
-(table/JSON, always exits 0), and `check` runs a scenario and **exits 1 on any
-failed assertion** — the CI gate. `--format json` and `-` (stdin) make it
-pipeline-friendly. `result_to_json` is the shared JSON serializer.
+Subcommands over the same engines. `dump` replays a log into frames (table/JSON,
+always exits 0). `check` runs a scenario and **exits 1 on any failed assertion**
+— the CI gate. `scan` runs the detector pipeline (table/JSON/SARIF) with an
+optional `--fail-on <severity>` gate. `stats` prints the bus summary and `diff`
+**exits 1** when two captures differ. `--format json` and `-` (stdin) make every
+command pipeline-friendly. `result_to_json` / `to_json` are the shared JSON
+serializers.
 
 ### MCP server (`canzap.mcp_server`)
-Exposes the same operations to AI agents over MCP, so an agent can replay a
-capture and assert on it as a tool call.
+`build_app()` wires `scan()` into a FastMCP `canzap_scan(target)` tool (split out
+so it is unit-testable without starting the blocking stdio loop); `serve()` runs
+it. Requires the optional `mcp` extra.
 
 ## Why these choices
 

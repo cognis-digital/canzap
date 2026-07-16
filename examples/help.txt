@@ -1,13 +1,18 @@
-$ canzap-emit --help
+$ canzap --help
 
-usage: canzap [-h] [--version] [--format {table,json}] {check,dump} ...
+usage: canzap [-h] [--version] [--format {table,json}]
+              {check,dump,scan,stats,diff,mcp} ...
 
 Replay and assert on CAN bus traffic from a candump log.
 
 positional arguments:
-  {check,dump}
+  {check,dump,scan,stats,diff,mcp}
     check               assert a candump log against a scenario
     dump                parse/replay a candump log into frames
+    scan                heuristically scan a capture for anomalies
+    stats               per-ID counts, DLCs, and timing for a capture
+    diff                compare two captures by arbitration ID
+    mcp                 run the MCP server (needs the 'mcp' extra)
 
 options:
   -h, --help            show this help message and exit

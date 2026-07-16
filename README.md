@@ -36,20 +36,25 @@ A full narrated tour — setup, the tool in action, and every demo scenario:
 Real, reproducible output from the tool — runs offline:
 
 ```console
-$ canzap-emit --version
-canzap 0.1.0
+$ canzap --version
+canzap 0.7.3
 ```
 
 ```console
-$ canzap-emit --help
-usage: canzap [-h] [--version] [--format {table,json}] {check,dump} ...
+$ canzap --help
+usage: canzap [-h] [--version] [--format {table,json}]
+              {check,dump,scan,stats,diff,mcp} ...
 
 Replay and assert on CAN bus traffic from a candump log.
 
 positional arguments:
-  {check,dump}
+  {check,dump,scan,stats,diff,mcp}
     check               assert a candump log against a scenario
     dump                parse/replay a candump log into frames
+    scan                heuristically scan a capture for anomalies
+    stats               per-ID counts, DLCs, and timing for a capture
+    diff                compare two captures by arbitration ID
+    mcp                 run the MCP server (needs the 'mcp' extra)
 
 options:
   -h, --help            show this help message and exit
@@ -94,7 +99,7 @@ examples:
 
 ## Contents
 
-- [Why canzap?](#why) · [Features](#features) · [Quick start](#quick-start) · [Example](#example) · [Architecture](#architecture) · [Demos](#demos) · [AI stack](#ai-stack) · [How it compares](#how-it-compares) · [Integrations](#integrations) · [Install anywhere](#install-anywhere) · [Related](#related) · [Contributing](#contributing)
+- [Why canzap?](#why) · [Features](#features) · [Quick start](#quick-start) · [Example](#example) · [Architecture](#architecture) · [Demos](#demos) · [AI stack](#ai-stack) · [What you get](#how-it-compares) · [Configuration](#configuration) · [FAQ](#faq) · [Integrations](#integrations) · [Install anywhere](#install-anywhere) · [Related](#related) · [Contributing](#contributing)
 
 <a name="why"></a>
 ## Why canzap?
@@ -108,12 +113,15 @@ Automotive hacking made CI-friendly — write 'expect no arbitration-ID 0x7DF af
 <a name="features"></a>
 ## Features
 
-- ✅ Parse Candump
-- ✅ Parse Candump Text
-- ✅ Load Scenario Text
-- ✅ Load Scenario
-- ✅ Run Scenario
-- ✅ Result To Json
+- ✅ **Parse** the standard `candump -l` log format into typed frames (offline)
+- ✅ **Assert** a capture against a tiny YAML scenario DSL — `check` exits 1 on failure (the CI gate)
+- ✅ **Scan** for anomalies — diagnostic traffic, bus floods, cadence jitter, injected/lone frames, RTR, extended IDs
+- ✅ **Stats** — per-ID counts, DLCs, and min/avg/max inter-frame timing
+- ✅ **Diff** two captures by arbitration ID — record a clean drive cycle, gate later ones against it
+- ✅ **Output** as table, JSON, or **SARIF 2.1.0** for code-scanning
+- ✅ **`--fail-on <severity>`** severity gate for `scan` in CI
+- ✅ **MCP server** (`canzap mcp`) + `cognis-connect` bridge (STIX/MISP/Sigma/SIEM/webhook)
+- ✅ **Zero dependencies** in the core — pure standard library
 - ✅ Runs on Linux/macOS/Windows · Docker · devcontainer
 - ✅ Ports in Python, JavaScript, Go, and Rust (`ports/`)
 
@@ -125,10 +133,15 @@ Automotive hacking made CI-friendly — write 'expect no arbitration-ID 0x7DF af
 ```bash
 pip install cognis-canzap
 canzap --version
-canzap scan .                       # scan current project
-canzap scan . --format json         # machine-readable
-canzap scan . --fail-on high        # CI gate (non-zero exit)
+canzap scan capture.log                 # heuristic anomaly scan
+canzap scan capture.log --format json   # machine-readable report
+canzap scan capture.log --fail-on high  # CI gate (non-zero exit on ≥ high)
+canzap check --log capture.log --scenario startup.canzap   # assert a contract
+canzap stats --log capture.log          # per-ID counts, DLCs, timing
+canzap diff --baseline good.log --candidate suspect.log    # regression-diff
 ```
+
+Full command reference: [`docs/USAGE.md`](docs/USAGE.md).
 
 <div align="right"><a href="#top">↑ back to top</a></div>
 
@@ -136,11 +149,13 @@ canzap scan . --fail-on high        # CI gate (non-zero exit)
 ## Example
 
 ```text
-$ canzap scan .
-  [HIGH    ] CAN-001  example finding             (./src/app.py)
-  [MEDIUM  ] CAN-002  another signal              (./config.yaml)
+$ canzap scan demos/fixtures/fuzz_replay.log
+  [HIGH    ] bus-flood          0x333    ID accounts for 50% of the capture (8 frames, mean gap 1.00ms) — consistent with a flood / bus denial-of-service or an aggressive injection.
+  [MEDIUM  ] cadence-jitter     0x700    Periodic ID has an irregular gap of 500.0ms vs a typical 100.0ms — a dropped, delayed, or injected frame.
+  [MEDIUM  ] diagnostic-traffic 0x7DF    OBD-II/UDS diagnostic traffic (functional broadcast) observed on 1 frame(s).
+  [LOW     ] lone-frame         0x7DF    ID appears exactly once on an otherwise periodic bus — possible injected or spoofed frame.
 
-  2 findings · risk score 5 · 38ms
+  6 finding(s) · risk score 17 · 16 frames
 ```
 
 <div align="right"><a href="#top">↑ back to top</a></div>
@@ -201,18 +216,18 @@ Full write-up and capture details in [`docs/DEMOS.md`](docs/DEMOS.md).
 <div align="right"><a href="#top">↑ back to top</a></div>
 
 <a name="how-it-compares"></a>
-## How it compares
+## What you get
 
-| | **Cognis canzap** | caringcaribou + can-utils |
-|---|:---:|:---:|
-| Self-hostable, no account | ✅ | varies |
-| Single command, zero config | ✅ | ⚠️ |
-| JSON + SARIF for CI | ✅ | varies |
-| MCP-native (AI agents) | ✅ | ❌ |
-| Polyglot ports (JS/Go/Rust) | ✅ | ❌ |
-| Open license | ✅ COCL | varies |
-
-*Built in the spirit of **caringcaribou + can-utils**, re-framed the Cognis way. Missing a credit? Open a PR.*
+| Capability | canzap |
+|---|:---:|
+| Self-hostable, no account, fully offline | ✅ |
+| Single command, zero config, zero core dependencies | ✅ |
+| Assertion DSL as a CI gate (non-zero exit on failure) | ✅ |
+| Heuristic anomaly scan with `--fail-on` severity gate | ✅ |
+| Table · JSON · SARIF output | ✅ |
+| MCP-native (AI agents) | ✅ |
+| Polyglot ports (JS/Go/Rust) | ✅ |
+| Open license | ✅ COCL |
 
 <div align="right"><a href="#top">↑ back to top</a></div>
 
@@ -253,6 +268,65 @@ curl -fsSL https://raw.githubusercontent.com/cognis-digital/canzap/main/install.
 - [`keyhunt`](https://github.com/cognis-digital/keyhunt) — Scan firmware blobs and filesystem dumps for hardcoded private keys, API tokens, default creds, and weak RSA/ECC material.
 
 **Explore the suite →** [🗂️ all 170+ tools](https://github.com/cognis-digital/cognis-neural-suite) · [⭐ awesome-cognis](https://github.com/cognis-digital/awesome-cognis) · [🔗 cognis-sources](https://github.com/cognis-digital/cognis-sources) · [🤖 uncensored-fleet](https://github.com/cognis-digital/uncensored-fleet) · [🧠 engram](https://github.com/cognis-digital/engram)
+
+<div align="right"><a href="#top">↑ back to top</a></div>
+
+<a name="configuration"></a>
+## Configuration reference
+
+`canzap` is configured entirely through CLI flags and the scenario file — no
+config file, no environment setup, no network.
+
+**Global flags**
+
+| Flag | Values | Meaning |
+|---|---|---|
+| `--version` | — | print `canzap <version>` and exit |
+| `--format` | `table` (default) · `json` | output format (subcommands add `sarif` where supported) |
+
+**Per-command flags**
+
+| Command | Flag | Meaning |
+|---|---|---|
+| `check` | `--log` / `--scenario` | capture and scenario files (`-` = stdin) |
+| `scan` | `target` | log file, directory of logs, or `.` |
+| `scan` | `--format` | `table` · `json` · `sarif` |
+| `scan` | `--fail-on` | `info`·`low`·`medium`·`high`·`critical` — exit 1 at/above |
+| `stats` | `--log` | capture to summarize |
+| `diff` | `--baseline` / `--candidate` | two captures to compare |
+| `mcp` | — | start the MCP stdio server (needs `[mcp]` extra) |
+
+**Optional extras** (`pip install "cognis-canzap[...]"`): `mcp` (MCP server),
+`connect` (findings forwarder), `dev` (pytest + ruff).
+
+Full DSL keys and detector table: [`docs/USAGE.md`](docs/USAGE.md).
+
+<div align="right"><a href="#top">↑ back to top</a></div>
+
+<a name="faq"></a>
+## FAQ
+
+**Do I need CAN hardware or a live bus?** No. `canzap` works entirely from a
+recorded `candump -l` log; everything is offline and deterministic.
+
+**What log format is supported?** The standard `candump` format —
+`(<epoch.usec>) <iface> <ID>#<HEXDATA>` — plus the plain console form and RTR
+(`ID#R`) frames. Blank lines and `#` comments are skipped.
+
+**How is `scan` different from `check`?** `check` asserts a capture against a
+*contract you wrote* (the scenario DSL). `scan` needs no scenario — it applies
+built-in heuristics to surface *suspicious* traffic automatically.
+
+**How do I gate CI?** `check` and `diff` exit non-zero on failure/drift, and
+`scan --fail-on <severity>` exits 1 when a finding meets the threshold — wire any
+of them into a CI step.
+
+**Are extended (29-bit) IDs and CAN FD supported?** Extended IDs are detected
+from ID width; payloads up to the 64-byte CAN FD maximum parse (over-length data
+raises a clear error).
+
+**Does the core pull in dependencies?** No — the parser and DSL are pure standard
+library. `mcp` and `connect` are optional extras.
 
 <div align="right"><a href="#top">↑ back to top</a></div>
 

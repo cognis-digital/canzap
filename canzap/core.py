@@ -30,9 +30,32 @@ The scenario DSL is intentionally a tiny YAML subset so we never need PyYAML:
 from __future__ import annotations
 
 import json
+import os
 import re
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
+
+
+def _read_version() -> str:
+    """Read the package version from the repo ``VERSION`` file, if present."""
+    here = os.path.dirname(os.path.abspath(__file__))
+    for candidate in (
+        os.path.join(here, "VERSION"),
+        os.path.join(os.path.dirname(here), "VERSION"),
+    ):
+        try:
+            with open(candidate, "r", encoding="utf-8") as fh:
+                v = fh.read().strip()
+            if v:
+                return v
+        except OSError:
+            continue
+    return "0.1.0"
+
+
+#: Public tool identity. Re-exported via :mod:`canzap` and used by the CLI.
+TOOL_NAME = "canzap"
+TOOL_VERSION = _read_version()
 
 # --------------------------------------------------------------------------
 # Data types
@@ -48,6 +71,7 @@ class CanFrame:
     can_id: int
     data: bytes
     extended: bool = False
+    rtr: bool = False  # remote transmission request frame
 
     @property
     def dlc(self) -> int:
@@ -62,6 +86,7 @@ class CanFrame:
             "dlc": self.dlc,
             "data": self.data.hex().upper(),
             "extended": self.extended,
+            "rtr": self.rtr,
         }
 
 
@@ -170,6 +195,7 @@ def parse_candump(line: str) -> Optional[CanFrame]:
     id_str = m.group("id")
     can_id = int(id_str, 16)
     extended = len(id_str) > 3 or can_id > 0x7FF
+    rtr = bool(m.group("rtr"))
 
     data_hex = m.group("data") or ""
     if len(data_hex) % 2 != 0:
@@ -188,6 +214,7 @@ def parse_candump(line: str) -> Optional[CanFrame]:
         can_id=can_id,
         data=data,
         extended=extended,
+        rtr=rtr,
     )
 
 
@@ -383,3 +410,140 @@ def run_scenario(frames: List[CanFrame], scenario: Scenario) -> ScenarioResult:
 
 def result_to_json(res: ScenarioResult) -> str:
     return json.dumps(res.to_dict(), indent=2)
+
+
+# --------------------------------------------------------------------------
+# Bus statistics
+# --------------------------------------------------------------------------
+
+
+def bus_stats(frames: List[CanFrame]) -> Dict[str, Any]:
+    """Summarize a capture: per-ID counts, DLCs, and inter-frame timing.
+
+    Returns a JSON-friendly dict with a top-level summary (frame count, unique
+    ID count, capture duration, bus load) and a ``per_id`` list sorted by
+    descending frame count. Timing fields are ``None`` when an ID has fewer than
+    two frames (no gap to measure).
+    """
+    groups: Dict[int, List[CanFrame]] = {}
+    for f in frames:
+        groups.setdefault(f.can_id, []).append(f)
+
+    timestamps = [f.timestamp for f in frames if f.timestamp]
+    duration = (max(timestamps) - min(timestamps)) if len(timestamps) >= 2 else 0.0
+
+    per_id: List[Dict[str, Any]] = []
+    for can_id, fr in groups.items():
+        ordered = sorted(fr, key=lambda x: x.timestamp)
+        periods = [
+            (ordered[i].timestamp - ordered[i - 1].timestamp) * 1000.0
+            for i in range(1, len(ordered))
+        ]
+        dlcs = sorted({x.dlc for x in fr})
+        per_id.append(
+            {
+                "id": can_id,
+                "id_hex": f"0x{can_id:X}",
+                "count": len(fr),
+                "extended": fr[0].extended,
+                "interfaces": sorted({x.interface for x in fr}),
+                "dlcs": dlcs,
+                "min_period_ms": round(min(periods), 3) if periods else None,
+                "max_period_ms": round(max(periods), 3) if periods else None,
+                "avg_period_ms": round(sum(periods) / len(periods), 3) if periods else None,
+            }
+        )
+    per_id.sort(key=lambda d: (-d["count"], d["id"]))
+
+    return {
+        "frame_count": len(frames),
+        "unique_ids": len(groups),
+        "duration_s": round(duration, 6),
+        "frames_per_s": round(len(frames) / duration, 3) if duration else None,
+        "interfaces": sorted({f.interface for f in frames}),
+        "per_id": per_id,
+    }
+
+
+def diff_captures(baseline: List[CanFrame], candidate: List[CanFrame]) -> Dict[str, Any]:
+    """Compare two captures by arbitration ID — the drive-log regression check.
+
+    Reports IDs that appear only in the baseline (``removed``), only in the
+    candidate (``added``), and IDs whose frame count changed (``changed``).
+    ``identical`` is true when the two captures carry exactly the same set of
+    IDs with the same per-ID counts.
+    """
+    def counts(frames: List[CanFrame]) -> Dict[int, int]:
+        out: Dict[int, int] = {}
+        for f in frames:
+            out[f.can_id] = out.get(f.can_id, 0) + 1
+        return out
+
+    base_c = counts(baseline)
+    cand_c = counts(candidate)
+
+    added = [
+        {"id_hex": f"0x{i:X}", "count": cand_c[i]}
+        for i in sorted(cand_c) if i not in base_c
+    ]
+    removed = [
+        {"id_hex": f"0x{i:X}", "count": base_c[i]}
+        for i in sorted(base_c) if i not in cand_c
+    ]
+    changed = [
+        {"id_hex": f"0x{i:X}", "baseline": base_c[i], "candidate": cand_c[i]}
+        for i in sorted(set(base_c) & set(cand_c))
+        if base_c[i] != cand_c[i]
+    ]
+    return {
+        "baseline_frames": len(baseline),
+        "candidate_frames": len(candidate),
+        "added": added,
+        "removed": removed,
+        "changed": changed,
+        "identical": not (added or removed or changed),
+    }
+
+
+# --------------------------------------------------------------------------
+# Heuristic scan (delegates to canzap.detect) — powers `canzap scan` and MCP
+# --------------------------------------------------------------------------
+
+
+def _load_frames_from_target(target: str) -> List[CanFrame]:
+    """Resolve ``target`` (file path, directory of logs, or raw text) to frames.
+
+    - A file path is read and parsed.
+    - A directory is scanned for ``*.log`` / ``*.candump`` capture files, all of
+      which are parsed and concatenated.
+    - Anything else is treated as raw candump text.
+    """
+    if os.path.isdir(target):
+        frames: List[CanFrame] = []
+        for root, _dirs, files in os.walk(target):
+            for name in sorted(files):
+                if name.endswith((".log", ".candump")):
+                    with open(os.path.join(root, name), "r", encoding="utf-8") as fh:
+                        frames.extend(parse_candump_text(fh.read()))
+        return frames
+    if os.path.isfile(target):
+        with open(target, "r", encoding="utf-8") as fh:
+            return parse_candump_text(fh.read())
+    return parse_candump_text(target)
+
+
+def scan(target: str) -> Dict[str, Any]:
+    """Heuristically scan a capture and return a findings report.
+
+    ``target`` may be a candump log file, a directory of captures, or raw
+    candump text. Returns the report dict from :func:`canzap.detect.scan_report`.
+    This is the function exposed over MCP by :mod:`canzap.mcp_server`.
+    """
+    from canzap.detect import scan_report  # local import avoids a cycle
+
+    return scan_report(_load_frames_from_target(target))
+
+
+def to_json(obj: Any) -> str:
+    """Serialize any canzap result object to indented JSON."""
+    return json.dumps(obj, indent=2)
