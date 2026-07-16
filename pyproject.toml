@@ -22,7 +22,7 @@ classifiers = [
 [project.optional-dependencies]
 connect = ["cognis-connect @ git+https://github.com/cognis-digital/cognis-connect.git"]
 mcp = ["mcp>=1.0"]
-dev = ["pytest>=8.0"]
+dev = ["pytest>=8.0", "ruff>=0.5"]
 
 [project.urls]
 Homepage = "https://cognis.digital"
@@ -37,3 +37,11 @@ packages = ["canzap"]
 
 [tool.hatch.metadata]
 allow-direct-references = true
+
+[tool.ruff]
+target-version = "py310"
+line-length = 100
+
+[tool.ruff.lint]
+# Pyflakes (F) for real defects + a pragmatic pycodestyle subset (E, W).
+select = ["E4", "E7", "E9", "F", "W"]
